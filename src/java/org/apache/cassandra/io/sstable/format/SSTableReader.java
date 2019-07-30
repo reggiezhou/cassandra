@@ -154,8 +154,8 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
     }
     private static final RateLimiter meterSyncThrottle = RateLimiter.create(100.0);
 
-    // Descending order
-    public static final Comparator<SSTableReader> maxTimestampComparator = (o1, o2) -> Long.compare(o2.getMaxTimestamp(), o1.getMaxTimestamp());
+    public static final Comparator<SSTableReader> maxTimestampDescending = (o1, o2) -> Long.compare(o2.getMaxTimestamp(), o1.getMaxTimestamp());
+    public static final Comparator<SSTableReader> maxTimestampAscending = (o1, o2) -> Long.compare(o1.getMaxTimestamp(), o2.getMaxTimestamp());
 
     // it's just an object, which we use regular Object equality on; we introduce a special class just for easy recognition
     public static final class UniqueIdentifier {}
@@ -491,9 +491,9 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         {
             sstableMetadata = descriptor.getMetadataSerializer().deserialize(descriptor, types);
         }
-        catch (IOException e)
+        catch (Throwable t)
         {
-            throw new CorruptSSTableException(e, descriptor.filenameFor(Component.STATS));
+            throw new CorruptSSTableException(t, descriptor.filenameFor(Component.STATS));
         }
         ValidationMetadata validationMetadata = (ValidationMetadata) sstableMetadata.get(MetadataType.VALIDATION);
         StatsMetadata statsMetadata = (StatsMetadata) sstableMetadata.get(MetadataType.STATS);
@@ -537,15 +537,10 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
 
             return sstable;
         }
-        catch (IOException e)
-        {
-            sstable.selfRef().release();
-            throw new CorruptSSTableException(e, sstable.getFilename());
-        }
         catch (Throwable t)
         {
             sstable.selfRef().release();
-            throw t;
+            throw new CorruptSSTableException(t, sstable.getFilename());
         }
     }
 
@@ -2374,5 +2369,12 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
                                            OpenReason openReason,
                                            SerializationHeader header);
 
+    }
+
+    public static void shutdownBlocking() throws InterruptedException
+    {
+        syncExecutor.shutdownNow();
+        syncExecutor.awaitTermination(0, TimeUnit.SECONDS);
+        resetTidying();
     }
 }
